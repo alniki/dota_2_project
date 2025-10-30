@@ -1,0 +1,9 @@
+# Jupyter checpoints
+.ipynb_checkpoints/
+
+# Folder with files
+files/
+
+# env files and logs
+supabase.env
+*.log
