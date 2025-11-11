@@ -1,7 +1,6 @@
 # Dota2 - сбор и подготовка данных об открытых матчах
 
-Репозиторий включает проект по сбору, обработке, хранению, визуализации открытых матчей Dota2.
-
+Целью проекта является создание аналитической панели, которая получает данные об открытых матчах Dota2. Для реализации этой цели необходимо написание скрипта, который будет загружать, обрабатывать и хранить данные о матчах Dota2.
 
 ## Содержание
 
@@ -12,28 +11,31 @@
     - [Этап 1.1. Сбор данных](#этап-11-сбор-данных)
     - [Этап 1.2. Знакомство с данными и первичная обработка](#этап-12-знакомство-с-данными-и-первичная-обработка)
   - [Этап 2: Создание базы данных](#этап-2-создание-базы-данных)
-  - [Этап 3. Поиск закономерностей и EDA](#этап-3-поиск-закономерностей-и-eda)
   - [Этап 3: Создание материализованных представлений (MV)](#этап-3-создание-материализованных-представлений-mv)
   - [Этап 4: Создание дашборда](#этап-4-создание-дашборда)
-  - [Этап 4: Подготовка ETL-пайплайна](#этап-4-подготовка-etl-пайплайна)
+  - [Этап 5: Подготовка ETL-пайплайна](#этап-4-подготовка-etl-пайплайна)
   - [Использование](#использование)
-  - [Зависимости](#зависимости)
 
 
 ## Обзор проекта
 
 Проект включает этапы:
-* Получение данных об открытых матчах с OpenDota API, загрузка ~ 20 тыс матчей (python, requests)
-* Знакомство и первичная обработка данных в Jupyter Notebook (python, pandas)
-* Создание базы данных PostgreSQL, база развернута на сервере supabase.com
-* Подключение к базе данных с использованием SQLAlchemy, поиск закономерностей в данных
-* Создание материализованных представлений для ускорения работы BI-системы (SQLAlchemy, SQL)
-* Построение аналитической панели для визуализации найденных закономерностей в Yandex DataLens 
-* Создание ETL пайплана (скачивание данных, формирование датафреймов, преобразование данных, загрузка в базу данных, обновление материализованных представлений)
+* Анализ API opendota на предмет отдаваемых данных
+* Определение данных для подготовки аналитических панелей
+* Написание парсеров для получения данных
+* Определение структуры базы данных
+* Создание обработчика данных
+* Заполнение базы данных (2000 запросов в сутки к API opendota)
+* Подготовка витрин данных
+* Подключение базы данных к BI-системе
+* Реализация аналитических панелей
+
+Итог:  
+Подготовлен ETL пайплан: скачивание и преобразование данных, загрузка в базу данных, обновление материализованных представлений
 
 **Стек**: 
 * Python: requests, pandas, sqlalchemy, matplotlib, seaborn, numpy
-* SQL
+* PostgreSQL
 * BI система: Yandex DataLens
 
 ## Этап 1: Сбор и первичная обработка данных
@@ -89,57 +91,24 @@ Jupyter Notebook файл: [csv_preparation_initial.ipynb](csv_preparation_initi
   
 ## Этап 2: Создание базы данных
 
-База данных PostgreSQL развернута на сервисе Supabase.com 
+База данных PostgreSQL развернута на сервисе Supabase.com  
 
-- Создание таблиц PostgreSQL:
-  - `matches` (PK: `match_id`)
-  - `players` (PK: `match_id, player_slot)`  
-  - `players_stat` (PK: `match_id, player_slot`) 
-  - `players_items` (PK: `match_id, player_slot, item_slot`)
-  - `heroes` (PK: `hero_id`)
-  - `items`  (PK: `item_id`)
-- Настройка внешних ключей для целостности данных:
-  - `PLAYERS.match_id → MATCHES.id`  
-  - `PLAYERS.hero_id → HEROES.id`  
-  - `PLAYERS_STAT.match_id, PLAYERS_STAT.player_slot → PLAYERS.match_id, PLAYERS.player_slot` 
-  - `PLAYERS_ITEMS.match_id, PLAYERS_ITEMS.player_slot → PLAYERS.match_id, PLAYERS.player_slot`
-  - `PLAYERS_ITEMS.item_id → ITEMS.id`  
+Схема базы данных: "снежинка".
+
+Баща данных содержит следующие таблицы:  
+* нормализованные измерения: `heroes`, `items`, `players`,`matches`
+* Связи через промежутоне таблицы: `players_stat`, `players_items`
+* Иерархические связи: 
+  * `matches` → `players` → `heroes`
+  * `matches` → `players` → `players_stat` → `players_items` → `items`
+
 
 Выполнена загрузка CSV файлов, подготовленных на ранних этапах в базу данных
 
 Диаграмма Базы Данных:  
-
-```mermaid
-flowchart TD
-  subgraph DB ["Postgres База данных"]
-    MATCHES["matches<br/>PK: match_id"]:::dbtable
-    PLAYERS["players<br/>PK: match_id, player_slot"]:::dbtable
-    PLAYERS_STAT["players_stat<br/>PK: match_id, player_slot"]:::dbtable
-    PLAYERS_ITEMS["players_items<br/>PK: match_id, player_slot, item_slot"]:::dbtable
-    HEROES["heroes<br/>PK: hero_id"]:::dbtable
-    ITEMS["items<br/>PK: item_id"]:::dbtable
-  end
-
-  PLAYERS -->|match_id FK → MATCHES.match_id| MATCHES
-  PLAYERS -->|hero_id FK → HEROES.hero_id| HEROES
-  PLAYERS_STAT -->|match_id, player_slot FK → PLAYERS.match_id, player_slot| PLAYERS
-  PLAYERS_ITEMS -->|match_id, player_slot FK → PLAYERS.match_id, player_slot| PLAYERS
-  PLAYERS_ITEMS -->|item_id FK → ITEMS.item_id| ITEMS
-
-  classDef dbtable fill:#dcedc8,stroke:#558b2f,stroke-width:1px,color:#000;
-    ...
-```
-## Этап 3. Поиск закономерностей и EDA
-
-* Подключение к базе данных
-  * Использовалась SQLAlchemy (`create_engine`) для подключения к PostgreSQL (Supabase).
-  * Настройка параметров через `.env` файл
-  * Проверка соединения через `engine.connect()`.
-* Выполнено знакомство с данными, проведен исследовательский анализ данных EDA, поиск закономерностей и инсайтов с использованием `Python(pandas, matplotlib, seaborn)`.   
-  * *Внимание: Данный код не вошел в настоящий репозиторий*
+<img src="images/drawSQL-image-export-2025-11-09.png" alt="Диаграмма базы данных" width="600">
  
 ## Этап 3: Создание материализованных представлений (MV)
-
 
 Jupyter Notebook: [mv_creation.ipynb](mv_creation.ipynb)
 
@@ -148,33 +117,17 @@ Jupyter Notebook: [mv_creation.ipynb](mv_creation.ipynb)
   * Настройка параметров через `.env` файл. 
     * ссылка на пример .env файла [example.env](example.env)
   * Проверка соединения через `engine.connect()`.
-* Создание MV для аналитики и дашбордов с использованием SQLAlchemy и SQL
+* Для аналитических панелей были реализованы следующие витрины данных в виде представлений:
   * Статистика побед Radiant по длительности матчей `radiant_win_by_duration`
-    * Рассчитывает суммарное количество побед Radiant и процент побед в зависимости от временного интервала матча.
   * Статистика по регионам `regions_stat`
-    * Считает количество матчей, среднюю и медианную длительность, среднее время первого убийства, количество побед Radiant и процент побед по каждому региону.
   * Факторы, влияющие на победу `win_factors`
-    * Рассчитывает средние и медианные показатели по Tower Damage, Hero Damage, GPM, XP, Last Hits, Assists, Kills, Deaths и First Blood в зависимости от победы.
-  * Статистика героев `heroes_stat`
-    * Анализирует winrate героев в нормальной и поздней фазе игры, популярность (pickup rate) и флаги лучших/худших героев.
+  * Статистика использования героев `heroes_stat`
   * Winrate по золоту на команду (GPM) `gmp_winrate`
-    * Рассчитывает winrate команд в зависимости от GPM и длительности матчей, с разбивкой по децилям.
   * Статистика по неизвестным игрокам (анонимам) `unknown_players`
-    * Рассчитывает средние и медианные показатели игроков без Steam ID и Personaname: Kills, Deaths, Assists, Denies, GPM, XP, Hero Damage, Tower Damage.
-
-- Создание MV для аналитики и отчетности:
-  - `public.radiant_win_by_duration`  
-  - `public.win_factors`  
-  - `public.gmp_winrate`  
-  - `public.regions_stat`  
-  - `public.unknown_players`  
-  - `public.heroes_stat`  
-
 
 ## Этап 4: Создание дашборда
 
-
-Ссылка на дашборд: https://datalens.ru/kv8lvzzuoft65
+Ссылка на дашборд: https://datalens.yandex/kv8lvzzuoft65
 
 
 - Цель: создание у новичка общего представления об игре Дота2
@@ -187,7 +140,7 @@ Jupyter Notebook: [mv_creation.ipynb](mv_creation.ipynb)
   - Герои: поиск инсайтов о героях, более детальная информация
   - Анонимы: поиск различий в игре анонимов и публичных игроков
 
-## Этап 4: Подготовка ETL-пайплайна
+## Этап 5: Подготовка ETL-пайплайна
 
 
 Jupyter Notebook: [etl_pipeline.ipynb](etl_pipeline.ipynb)
